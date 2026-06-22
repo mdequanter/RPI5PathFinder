@@ -3,10 +3,15 @@
 
 Captures frames from the CSI camera (via Picamera2 / libcamera), runs YOLO
 segmentation to find the path, computes the heading toward it, and prints
-"left" / "right" when a turn is needed. No visualisation.
+"left" / "right" when a turn is needed. Shows an OpenCV window with the mask
+overlay and heading line (works over SSH X forwarding).
+
+Inference takes ~0.5 s/frame, so the loop only processes one frame every
+PROCESS_INTERVAL seconds rather than running flat out.
 """
 
 import logging
+import time
 
 import cv2
 import numpy as np
@@ -34,7 +39,8 @@ TARGET_HEADING = 90.0
 HEADING_DEADBAND = 2.0
 FRAME_SIZE = (640, 480)
 MODEL_PATH = "models/denham.pt"
-DEBUG_EVERY_N_FRAMES = 30  # log a heartbeat every N frames
+PROCESS_INTERVAL = 0.5  # seconds between processed frames (~inference time)
+WINDOW_NAME = "PathFinder"
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -71,14 +77,21 @@ def compute_heading_to_point(frame, target_x, target_y):
 
 
 def compute_heading(frame, model):
+    """Run segmentation on a frame.
+
+    Returns (heading_degrees, annotated_frame). The annotated frame is a copy
+    of the input with the path mask overlay and heading line drawn on it.
+    """
     h, w = frame.shape[:2]
     result = model(frame, conf=DETECTION_CONFIDENCE, verbose=False)[0]
     model_names = getattr(model, "names", {})
+    vis = frame.copy()
     midpoints = []
 
     if result.masks is None or len(result.masks.data) == 0:
-        return 90.0
+        return 90.0, vis
 
+    overlay = vis.copy()
     for mask_index in get_allowed_mask_indices(result, model_names):
         if mask_index >= len(result.masks.data):
             continue
@@ -86,6 +99,8 @@ def compute_heading(frame, model):
         mask = result.masks.data[mask_index].cpu().numpy()
         mask = (mask * 255).astype(np.uint8)
         mask = cv2.resize(mask, (w, h), interpolation=cv2.INTER_NEAREST)
+
+        overlay[mask > 0] = (0, 255, 0)  # green path overlay
 
         for row_ratio in SCAN_HEIGHTS:
             y = int(h * row_ratio)
@@ -95,12 +110,19 @@ def compute_heading(frame, model):
             if len(filled_x) > 0:
                 midpoints.append((int(np.mean(filled_x)), y))
 
+    cv2.addWeighted(overlay, 0.4, vis, 0.6, 0, vis)
+
     if not midpoints:
-        return 90.0
+        return 90.0, vis
+
+    for mx, my in midpoints:
+        cv2.circle(vis, (mx, my), 3, (0, 0, 255), -1)
 
     avg_x = int(np.mean([point[0] for point in midpoints]))
     target_y = min(point[1] for point in midpoints)
-    return compute_heading_to_point(frame, avg_x, target_y)
+    cv2.line(vis, (w // 2, h), (avg_x, target_y), (255, 0, 0), 2)
+    heading = compute_heading_to_point(frame, avg_x, target_y)
+    return heading, vis
 
 
 def direction_for_heading(heading):
@@ -123,38 +145,52 @@ def main():
     )
     picam2.configure(config)
     picam2.start()
-    log.info("Camera started. Entering capture loop (Ctrl+C to stop).")
+    cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_NORMAL)
+    log.info("Camera started. Processing 1 frame every %.2fs "
+             "(press 'q' in the window or Ctrl+C to stop).", PROCESS_INTERVAL)
 
     frame_count = 0
     last_direction = None
     try:
         while True:
+            loop_start = time.monotonic()
+
             # Picamera2 with "RGB888" delivers BGR-ordered data for OpenCV.
             frame = picam2.capture_array()
             frame_count += 1
             if frame_count == 1:
                 log.info("First frame read: shape=%s dtype=%s", frame.shape, frame.dtype)
 
-            heading = compute_heading(frame, model)
+            infer_start = time.monotonic()
+            heading, vis = compute_heading(frame, model)
+            infer_ms = (time.monotonic() - infer_start) * 1000.0
             direction = direction_for_heading(heading)
 
-            if frame_count % DEBUG_EVERY_N_FRAMES == 0:
-                log.debug(
-                    "frame=%d heading=%.1f deg direction=%s",
-                    frame_count,
-                    heading,
-                    direction or "straight",
-                )
+            log.debug(
+                "frame=%d infer=%.0fms heading=%.1f deg direction=%s",
+                frame_count, infer_ms, heading, direction or "straight",
+            )
 
             if direction is not None and direction != last_direction:
-                log.debug("turn change: %s -> %s (heading=%.1f)",
-                          last_direction or "straight", direction, heading)
                 print(direction, flush=True)
             last_direction = direction
+
+            label = f"heading={heading:.1f}  {direction or 'straight'}  {infer_ms:.0f}ms"
+            cv2.putText(vis, label, (10, 25), cv2.FONT_HERSHEY_SIMPLEX,
+                        0.6, (255, 255, 255), 2, cv2.LINE_AA)
+            cv2.imshow(WINDOW_NAME, vis)
+
+            # Pace the loop: wait out the rest of the interval (min 1ms so the
+            # window repaints), and quit on 'q'.
+            elapsed_ms = (time.monotonic() - loop_start) * 1000.0
+            wait_ms = max(1, int(PROCESS_INTERVAL * 1000.0 - elapsed_ms))
+            if cv2.waitKey(wait_ms) & 0xFF == ord("q"):
+                break
     except KeyboardInterrupt:
         log.info("Interrupted. Read %d frames total.", frame_count)
     finally:
         picam2.stop()
+        cv2.destroyAllWindows()
         log.info("Camera stopped.")
 
 
