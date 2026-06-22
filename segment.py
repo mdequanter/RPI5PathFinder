@@ -6,6 +6,8 @@ segmentation to find the path, computes the heading toward it, and prints
 "left" / "right" when a turn is needed. No visualisation.
 """
 
+import logging
+
 import cv2
 import numpy as np
 
@@ -31,8 +33,19 @@ ALLOWED_PATH_LABELS = {"path", "path-oxod"}
 TARGET_HEADING = 90.0
 HEADING_DEADBAND = 2.0
 FRAME_SIZE = (640, 480)
+MODEL_PATH = "models/denham.pt"
+DEBUG_EVERY_N_FRAMES = 30  # log a heartbeat every N frames
 
-model = YOLO("models/denham.pt", verbose=False)
+logging.basicConfig(
+    level=logging.DEBUG,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%H:%M:%S",
+)
+log = logging.getLogger("segment")
+
+log.info("Loading model: %s", MODEL_PATH)
+model = YOLO(MODEL_PATH, verbose=False)
+log.info("Model loaded. Classes: %s", getattr(model, "names", {}))
 
 
 def get_allowed_mask_indices(result, model_names):
@@ -103,27 +116,46 @@ def direction_for_heading(heading):
 
 
 def main():
+    log.info("Initialising CSI camera (Picamera2) at %sx%s", *FRAME_SIZE)
     picam2 = Picamera2()
     config = picam2.create_preview_configuration(
         main={"size": FRAME_SIZE, "format": "RGB888"}
     )
     picam2.configure(config)
     picam2.start()
+    log.info("Camera started. Entering capture loop (Ctrl+C to stop).")
 
+    frame_count = 0
     last_direction = None
     try:
         while True:
             # Picamera2 with "RGB888" delivers BGR-ordered data for OpenCV.
             frame = picam2.capture_array()
+            frame_count += 1
+            if frame_count == 1:
+                log.info("First frame read: shape=%s dtype=%s", frame.shape, frame.dtype)
+
             heading = compute_heading(frame, model)
             direction = direction_for_heading(heading)
+
+            if frame_count % DEBUG_EVERY_N_FRAMES == 0:
+                log.debug(
+                    "frame=%d heading=%.1f deg direction=%s",
+                    frame_count,
+                    heading,
+                    direction or "straight",
+                )
+
             if direction is not None and direction != last_direction:
+                log.debug("turn change: %s -> %s (heading=%.1f)",
+                          last_direction or "straight", direction, heading)
                 print(direction, flush=True)
             last_direction = direction
     except KeyboardInterrupt:
-        pass
+        log.info("Interrupted. Read %d frames total.", frame_count)
     finally:
         picam2.stop()
+        log.info("Camera stopped.")
 
 
 if __name__ == "__main__":
