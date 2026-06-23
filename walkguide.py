@@ -52,10 +52,10 @@ PROCESS_INTERVAL = 0.5  # seconds between processed frames (~inference time)
 WINDOW_NAME = "PathFinder"
 SOUND_DIR = "sound"
 SOUND_FILES = {
-    "left": os.path.join(SOUND_DIR, "left.mp3"),
-    "right": os.path.join(SOUND_DIR, "right.mp3"),
-    "forward": os.path.join(SOUND_DIR, "forward.mp3"),
-    "started": os.path.join(SOUND_DIR, "application_started.mp3"),
+    "left": "/home/pi/RPI5PathFinder/sound/left.mp3",
+    "right": "/home/pi/RPI5PathFinder/sound/right.mp3",
+    "forward": "/home/pi/RPI5PathFinder/sound/forward.mp3",
+    "started": "/home/pi/RPI5PathFinder/sound/application_started.mp3",
 }
 # CLI mp3 players tried in order; the first one found on PATH is used.
 AUDIO_PLAYERS = [
