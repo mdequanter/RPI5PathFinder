@@ -66,7 +66,7 @@ AUDIO_PLAYERS = [
 ]
 
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.ERROR,
     format="%(asctime)s [%(levelname)s] %(message)s",
     datefmt="%H:%M:%S",
 )
@@ -220,6 +220,8 @@ def main():
 
     proc_state = {"proc": None}
     play_sound(player, "started", proc_state)
+
+    time.sleep(5)
 
     log.info("Initialising CSI camera (Picamera2) at %sx%s", *FRAME_SIZE)
     picam2 = Picamera2()
