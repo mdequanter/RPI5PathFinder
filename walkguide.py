@@ -55,6 +55,7 @@ SOUND_FILES = {
     "left": os.path.join(SOUND_DIR, "left.mp3"),
     "right": os.path.join(SOUND_DIR, "right.mp3"),
     "forward": os.path.join(SOUND_DIR, "forward.mp3"),
+    "started": os.path.join(SOUND_DIR, "application_started.mp3"),
 }
 # CLI mp3 players tried in order; the first one found on PATH is used.
 AUDIO_PLAYERS = [
@@ -217,6 +218,9 @@ def main():
     else:
         log.info("Using audio player: %s", player[0])
 
+    proc_state = {"proc": None}
+    play_sound(player, "started", proc_state)
+
     log.info("Initialising CSI camera (Picamera2) at %sx%s", *FRAME_SIZE)
     picam2 = Picamera2()
     config = picam2.create_preview_configuration(
@@ -233,7 +237,6 @@ def main():
 
     frame_count = 0
     last_command = None
-    proc_state = {"proc": None}
     try:
         while True:
             loop_start = time.monotonic()
