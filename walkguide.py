@@ -85,11 +85,11 @@ def find_audio_player():
     return None
 
 
-def play_sound(player, command, proc_state):
-    """Play the mp3 for `command` ("left"/"right"/"forward"), non-blocking.
+def play_sound(player, command):
+    """Play the mp3 for `command` ("left"/"right"/"forward") to completion.
 
-    Stops any sound still playing from the previous command so announcements
-    don't pile up.
+    Blocks until the clip has finished so the command is always spoken fully
+    and announcements never cut each other off.
     """
     if player is None:
         return
@@ -98,14 +98,14 @@ def play_sound(player, command, proc_state):
         log.warning("Sound file missing: %s", path)
         return
 
-    prev = proc_state.get("proc")
-    if prev is not None and prev.poll() is None:
-        prev.terminate()
-    proc_state["proc"] = subprocess.Popen(
-        player + [path],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+    try:
+        subprocess.run(
+            player + [path],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except Exception as exc:
+        log.warning("Failed to play %s: %s", path, exc)
 
 
 def get_allowed_mask_indices(result, model_names):
@@ -218,8 +218,7 @@ def main():
     else:
         log.info("Using audio player: %s", player[0])
 
-    proc_state = {"proc": None}
-    play_sound(player, "started", proc_state)
+    play_sound(player, "started")
 
     time.sleep(5)
 
@@ -261,7 +260,7 @@ def main():
 
             if command != last_command:
                 print(command, flush=True)
-                play_sound(player, command, proc_state)
+                play_sound(player, command)
             last_command = command
 
             if show:
@@ -284,9 +283,6 @@ def main():
         picam2.stop()
         if show:
             cv2.destroyAllWindows()
-        prev = proc_state.get("proc")
-        if prev is not None and prev.poll() is None:
-            prev.terminate()
         log.info("Camera stopped.")
 
 
