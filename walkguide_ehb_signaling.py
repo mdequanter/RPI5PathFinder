@@ -68,8 +68,11 @@ HEADING_DEADBAND = 2.0
 MQTT_BROKER = "localhost"
 MQTT_PORT = 1883
 MQTT_TOPIC = "heading"
-HEADING_MIN = 50.0           # clamp published heading to this range
-HEADING_MAX = 130.0
+# Discrete heading values published per direction (right is the low end, like
+# the underlying heading scale where heading < 90 means the path is right).
+MQTT_VALUE_RIGHT = 60
+MQTT_VALUE_LEFT = 130
+MQTT_VALUE_STRAIGHT = 90
 
 BEARER_TOKEN = os.environ.get("PATHFINDER_BEARER_TOKEN")
 
@@ -113,13 +116,21 @@ def create_mqtt_client():
         return None
 
 
-def publish_heading(client, heading):
-    """Publish the heading (clamped to [HEADING_MIN, HEADING_MAX]) as a number."""
+def mqtt_value_for_command(command):
+    """Map a direction command to the discrete heading value to publish."""
+    if command == "right":
+        return MQTT_VALUE_RIGHT
+    if command == "left":
+        return MQTT_VALUE_LEFT
+    return MQTT_VALUE_STRAIGHT
+
+
+def publish_heading(client, value):
+    """Publish a numeric heading value to the MQTT topic."""
     if client is None:
         return
-    clamped = max(HEADING_MIN, min(HEADING_MAX, float(heading)))
     try:
-        client.publish(MQTT_TOPIC, round(clamped, 2))
+        client.publish(MQTT_TOPIC, value)
     except Exception as exc:
         log.warning("MQTT publish failed: %s", exc)
 
@@ -202,8 +213,6 @@ async def receive_headings(ws, player, send_times, proc_state, mqtt_client):
 
         command = command_for_heading(float(heading))
 
-        publish_heading(mqtt_client, heading)
-
         #print(
         #    f"heading={float(heading):.1f} command={command or 'straight'} "
         #    f"frame={frame_id} "
@@ -211,19 +220,19 @@ async def receive_headings(ws, player, send_times, proc_state, mqtt_client):
         #    flush=True,
         #)
 
-        # Only announce left/right; ignore straight (forward) and don't let it
-        # reset last_command, so we re-announce only when the turn changes.
-        if command is None:
-            continue
-
+        # Update MQTT and speak at the same cadence: on a direction change or
+        # every REPEAT_INTERVAL seconds. MQTT gets the discrete value (60/130/90);
+        # only left/right are spoken (straight stays silent).
         now = time.monotonic()
         changed = command != last_command
         due_for_repeat = (now - last_announced_at) >= REPEAT_INTERVAL
         if changed or due_for_repeat:
-            print(command, flush=True)
-            # Non-blocking playback so the receive loop keeps consuming headings.
-            play_sound(player, command, proc_state)
-            last_announced_at = time.monotonic()
+            publish_heading(mqtt_client, mqtt_value_for_command(command))
+            if command is not None:
+                print(command, flush=True)
+                # Non-blocking playback so the loop keeps consuming headings.
+                play_sound(player, command, proc_state)
+            last_announced_at = now
         last_command = command
 
 
