@@ -68,6 +68,7 @@ HEADING_DEADBAND = 30.0
 MQTT_BROKER = "localhost"
 MQTT_PORT = 1883
 MQTT_TOPIC = "heading"
+MQTT_TOPIC_RAW = "heading_raw"   # the real (un-discretized) heading
 # Discrete heading values published per direction (right is the low end, like
 # the underlying heading scale where heading < 90 means the path is right).
 MQTT_VALUE_RIGHT = 60
@@ -125,12 +126,12 @@ def mqtt_value_for_command(command):
     return MQTT_VALUE_STRAIGHT
 
 
-def publish_heading(client, value):
-    """Publish a numeric heading value to the MQTT topic."""
+def publish_heading(client, value, topic=MQTT_TOPIC):
+    """Publish a numeric heading value to an MQTT topic."""
     if client is None:
         return
     try:
-        client.publish(MQTT_TOPIC, value)
+        client.publish(topic, value)
     except Exception as exc:
         log.warning("MQTT publish failed: %s", exc)
 
@@ -233,6 +234,7 @@ async def receive_headings(ws, player, send_times, proc_state, mqtt_client):
         due_for_repeat = (now - last_announced_at) >= REPEAT_INTERVAL
         if changed or due_for_repeat:
             publish_heading(mqtt_client, mqtt_value_for_command(command))
+            publish_heading(mqtt_client, round(float(heading), 2), MQTT_TOPIC_RAW)
             if command is not None:
                 print(command, flush=True)
                 # Non-blocking playback so the loop keeps consuming headings.
