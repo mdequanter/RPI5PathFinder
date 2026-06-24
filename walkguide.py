@@ -255,24 +255,35 @@ def main():
             heading, vis = compute_heading(frame, model, draw=show)
             infer_ms = (time.monotonic() - infer_start) * 1000.0
             print (f"heading: {heading}")
-            command = command_for_heading(heading)
+
+            # Exactly 90.0 means no valid heading was detected; keep the last
+            # good heading instead of treating it as "forward".
+            if heading == 90.0:
+                heading = last_heading
+            else:
+                last_heading = heading
+
+            if (heading != 90.0) :
+                command = command_for_heading(heading) if heading is not None else None
 
             log.debug(
-                "frame=%d infer=%.0fms heading=%.1f deg command=%s",
-                frame_count, infer_ms, heading, command,
+                "frame=%d infer=%.0fms heading=%s command=%s",
+                frame_count, infer_ms,
+                f"{heading:.1f}" if heading is not None else "n/a", command,
             )
 
             now = time.monotonic()
             changed = command != last_command
             due_for_repeat = (now - last_announced_at) >= REPEAT_INTERVAL
-            if changed or due_for_repeat:
+            if command is not None and (changed or due_for_repeat):
                 print(command, flush=True)
                 play_sound(player, command)
                 last_announced_at = now
             last_command = command
 
             if show:
-                label = f"heading={heading:.1f}  {command}  {infer_ms:.0f}ms"
+                heading_text = f"{heading:.1f}" if heading is not None else "n/a"
+                label = f"heading={heading_text}  {command}  {infer_ms:.0f}ms"
                 cv2.putText(vis, label, (10, 25), cv2.FONT_HERSHEY_SIMPLEX,
                             0.6, (255, 255, 255), 2, cv2.LINE_AA)
                 cv2.imshow(WINDOW_NAME, vis)
