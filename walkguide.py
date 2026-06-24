@@ -41,7 +41,7 @@ except ImportError as exc:
     ) from exc
 
 
-DETECTION_CONFIDENCE = 0.6
+DETECTION_CONFIDENCE = 0.4
 SCAN_HEIGHTS = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7]
 ALLOWED_PATH_LABELS = {"path", "path-oxod"}
 TARGET_HEADING = 90.0
