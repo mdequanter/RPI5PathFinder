@@ -240,6 +240,7 @@ def main():
     frame_count = 0
     last_command = None
     last_announced_at = 0.0
+    last_heading = None
     try:
         while True:
             loop_start = time.monotonic()
