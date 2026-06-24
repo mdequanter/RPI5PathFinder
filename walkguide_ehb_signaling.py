@@ -54,10 +54,10 @@ MODEL_NAME = "denham"        # model the server should use (must exist server-si
 DETECTION_CONFIDENCE = 0.5
 FRAME_SIZE = (640, 480)
 JPEG_QUALITY = 50
-SEND_INTERVAL = 0.3         # seconds between frames sent to the server
+SEND_INTERVAL = 0.1         # seconds between frames sent to the server
 REPEAT_INTERVAL = 2.0       # re-announce the same direction every N seconds
 TARGET_HEADING = 90.0
-HEADING_DEADBAND = 5.0
+HEADING_DEADBAND = 2.0
 
 BEARER_TOKEN = os.environ.get("PATHFINDER_BEARER_TOKEN")
 
