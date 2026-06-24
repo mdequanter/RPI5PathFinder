@@ -49,6 +49,7 @@ HEADING_DEADBAND = 2.0
 FRAME_SIZE = (640, 480)
 MODEL_PATH = "/home/pi/RPI5PathFinder/models/denham.pt"
 PROCESS_INTERVAL = 0.5  # seconds between processed frames (~inference time)
+REPEAT_INTERVAL = 5.0   # re-announce the last command if it's this old
 WINDOW_NAME = "PathFinder"
 SOUND_DIR = "sound"
 SOUND_FILES = {
@@ -238,6 +239,7 @@ def main():
 
     frame_count = 0
     last_command = None
+    last_announced_at = 0.0
     try:
         while True:
             loop_start = time.monotonic()
@@ -251,6 +253,7 @@ def main():
             infer_start = time.monotonic()
             heading, vis = compute_heading(frame, model, draw=show)
             infer_ms = (time.monotonic() - infer_start) * 1000.0
+            print (f"heading: {heading}")
             command = command_for_heading(heading)
 
             log.debug(
@@ -258,9 +261,13 @@ def main():
                 frame_count, infer_ms, heading, command,
             )
 
-            if command != last_command:
+            now = time.monotonic()
+            changed = command != last_command
+            due_for_repeat = (now - last_announced_at) >= REPEAT_INTERVAL
+            if changed or due_for_repeat:
                 print(command, flush=True)
                 play_sound(player, command)
+                last_announced_at = now
             last_command = command
 
             if show:
