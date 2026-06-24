@@ -51,12 +51,12 @@ except ImportError as exc:
 SIGNALING_SERVER = "wss://signaling.ehb.be"
 SESSION_ID = "rpi5-walkguide-001"
 MODEL_NAME = "denham"        # model the server should use (must exist server-side)
-DETECTION_CONFIDENCE = 0.8
+DETECTION_CONFIDENCE = 0.5
 FRAME_SIZE = (640, 480)
-JPEG_QUALITY = 80
-SEND_INTERVAL = 0.2          # seconds between frames sent to the server
+JPEG_QUALITY = 50
+SEND_INTERVAL = 0.3         # seconds between frames sent to the server
 TARGET_HEADING = 90.0
-HEADING_DEADBAND = 2.0
+HEADING_DEADBAND = 5.0
 
 BEARER_TOKEN = os.environ.get("PATHFINDER_BEARER_TOKEN")
 
@@ -76,7 +76,7 @@ AUDIO_PLAYERS = [
 ]
 
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.ERROR,
     format="%(asctime)s [%(levelname)s] %(message)s",
     datefmt="%H:%M:%S",
 )
@@ -110,14 +110,15 @@ def play_sound(player, command):
 
 
 def command_for_heading(heading):
-    """Map a heading to "left", "right" or "forward".
+    """Map a heading to "left", "right", or None (straight, not announced).
 
     Heading is 90 deg straight ahead. Below 90 the path is to the right; above
-    90 it is to the left; within the deadband it is straight ("forward").
+    90 it is to the left. Within the deadband (straight ahead) we return None
+    and stay silent - only left and right are announced.
     """
     error = heading - TARGET_HEADING
     if abs(error) <= HEADING_DEADBAND:
-        return "forward"
+        return None
     return "right" if heading < TARGET_HEADING else "left"
 
 
@@ -146,9 +147,14 @@ async def receive_headings(ws, player, send_times, loop):
         command = command_for_heading(float(heading))
         log.info(
             "heading=%.1f command=%s frame=%s latency=%s",
-            float(heading), command, frame_id,
+            float(heading), command or "straight", frame_id,
             f"{latency_ms:.0f}ms" if latency_ms is not None else "n/a",
         )
+
+        # Only announce left/right; ignore straight (forward) and don't let it
+        # reset last_command, so we re-announce only when the turn changes.
+        if command is None:
+            continue
 
         if command != last_command:
             print(command, flush=True)
