@@ -151,10 +151,11 @@ async def receive_headings(ws, player, send_times, loop):
         latency_ms = (time.monotonic() - sent_at) * 1000.0 if sent_at else None
 
         command = command_for_heading(float(heading))
-        log.info(
-            "heading=%.1f command=%s frame=%s latency=%s",
-            float(heading), command or "straight", frame_id,
-            f"{latency_ms:.0f}ms" if latency_ms is not None else "n/a",
+        print(
+            f"heading={float(heading):.1f} command={command or 'straight'} "
+            f"frame={frame_id} "
+            f"latency={f'{latency_ms:.0f}ms' if latency_ms is not None else 'n/a'}",
+            flush=True,
         )
 
         # Only announce left/right; ignore straight (forward) and don't let it
