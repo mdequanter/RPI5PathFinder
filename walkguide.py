@@ -50,12 +50,14 @@ FRAME_SIZE = (640, 480)
 MODEL_PATH = "/home/pi/RPI5PathFinder/models/denham.pt"
 PROCESS_INTERVAL = 0.5  # seconds between processed frames (~inference time)
 REPEAT_INTERVAL = 5.0   # re-announce the last command if it's this old
+NO_HEADING_STOP_SECONDS = 10.0  # say "stop" after this long with no heading
 WINDOW_NAME = "PathFinder"
 SOUND_DIR = "sound"
 SOUND_FILES = {
     "left": "/home/pi/RPI5PathFinder/sound/left.mp3",
     "right": "/home/pi/RPI5PathFinder/sound/right.mp3",
     "forward": "/home/pi/RPI5PathFinder/sound/forward.mp3",
+    "stop": "/home/pi/RPI5PathFinder/sound/stop.mp3",
     "started": "/home/pi/RPI5PathFinder/sound/application_started.mp3",
 }
 # CLI mp3 players tried in order; the first one found on PATH is used.
@@ -241,6 +243,7 @@ def main():
     last_command = None
     last_announced_at = 0.0
     last_heading = None
+    no_heading_since = None
     try:
         while True:
             loop_start = time.monotonic()
@@ -256,15 +259,26 @@ def main():
             infer_ms = (time.monotonic() - infer_start) * 1000.0
             print (f"heading: {heading}")
 
-            # Exactly 90.0 means no valid heading was detected; keep the last
-            # good heading instead of treating it as "forward".
+            now = time.monotonic()
+
+            # Exactly 90.0 means no valid heading was detected. Keep the last
+            # good heading (instead of treating it as "forward") for a while,
+            # then say "stop" once no heading has been seen for too long.
             if heading == 90.0:
+                if no_heading_since is None:
+                    no_heading_since = now
                 heading = last_heading
             else:
+                no_heading_since = None
                 last_heading = heading
 
-            if (heading != 90.0) :
-                command = command_for_heading(heading) if heading is not None else None
+            if (no_heading_since is not None
+                    and (now - no_heading_since) >= NO_HEADING_STOP_SECONDS):
+                command = "stop"
+            elif heading is not None:
+                command = command_for_heading(heading)
+            else:
+                command = None
 
             log.debug(
                 "frame=%d infer=%.0fms heading=%s command=%s",
@@ -272,7 +286,6 @@ def main():
                 f"{heading:.1f}" if heading is not None else "n/a", command,
             )
 
-            now = time.monotonic()
             changed = command != last_command
             due_for_repeat = (now - last_announced_at) >= REPEAT_INTERVAL
             if command is not None and (changed or due_for_repeat):
