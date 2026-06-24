@@ -132,16 +132,26 @@ def find_audio_player():
     return None
 
 
-def play_sound(player, command):
-    """Play the mp3 for `command` to completion (blocking)."""
+def play_sound(player, command, proc_state):
+    """Play the mp3 for `command` without blocking the caller.
+
+    Starts the player as a background process and returns immediately so the
+    event loop keeps running. If a previous clip is still playing, this one is
+    skipped rather than overlapping.
+    """
     if player is None:
         return
     path = SOUND_FILES.get(command)
     if not path or not os.path.exists(path):
         log.warning("Sound file missing: %s", path)
         return
+
+    prev = proc_state.get("proc")
+    if prev is not None and prev.poll() is None:
+        return  # still speaking; don't pile up
+
     try:
-        subprocess.run(
+        proc_state["proc"] = subprocess.Popen(
             player + [path],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -163,7 +173,7 @@ def command_for_heading(heading):
     return "right" if heading < TARGET_HEADING else "left"
 
 
-async def receive_headings(ws, player, send_times, loop, mqtt_client):
+async def receive_headings(ws, player, send_times, proc_state, mqtt_client):
     """Consume server responses and announce direction changes.
 
     The current direction is repeated every REPEAT_INTERVAL seconds so a blind
@@ -211,8 +221,8 @@ async def receive_headings(ws, player, send_times, loop, mqtt_client):
         due_for_repeat = (now - last_announced_at) >= REPEAT_INTERVAL
         if changed or due_for_repeat:
             print(command, flush=True)
-            # Blocking playback off the event loop so streaming continues.
-            await loop.run_in_executor(None, play_sound, player, command)
+            # Non-blocking playback so the receive loop keeps consuming headings.
+            play_sound(player, command, proc_state)
             last_announced_at = time.monotonic()
         last_command = command
 
@@ -273,7 +283,9 @@ async def run():
         log.info("Using audio player: %s", player[0])
 
     loop = asyncio.get_event_loop()
-    await loop.run_in_executor(None, play_sound, player, "started")
+
+    proc_state = {"proc": None}
+    play_sound(player, "started", proc_state)
 
     mqtt_client = create_mqtt_client()
 
@@ -307,7 +319,7 @@ async def run():
             log.info("Connected. Streaming frames (Ctrl+C to stop).")
             await asyncio.gather(
                 stream_frames(ws, picam2, send_times, loop),
-                receive_headings(ws, player, send_times, loop, mqtt_client),
+                receive_headings(ws, player, send_times, proc_state, mqtt_client),
             )
     finally:
         picam2.stop()
