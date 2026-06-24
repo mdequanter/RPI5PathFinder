@@ -207,6 +207,11 @@ async def receive_headings(ws, player, send_times, proc_state, mqtt_client):
         if heading is None:
             continue
 
+        # The server returns exactly 90.0 when nothing is detected. Ignore it
+        # (do nothing). A real "forward" path lands near 90 but not exactly.
+        if float(heading) == 90.0:
+            continue
+
         frame_id = payload.get("frame_id")
         sent_at = send_times.pop(frame_id, None)
         latency_ms = (time.monotonic() - sent_at) * 1000.0 if sent_at else None
