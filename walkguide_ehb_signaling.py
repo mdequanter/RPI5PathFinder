@@ -55,6 +55,7 @@ DETECTION_CONFIDENCE = 0.5
 FRAME_SIZE = (640, 480)
 JPEG_QUALITY = 50
 SEND_INTERVAL = 0.3         # seconds between frames sent to the server
+REPEAT_INTERVAL = 2.0       # re-announce the same direction every N seconds
 TARGET_HEADING = 90.0
 HEADING_DEADBAND = 5.0
 
@@ -123,8 +124,13 @@ def command_for_heading(heading):
 
 
 async def receive_headings(ws, player, send_times, loop):
-    """Consume server responses and announce direction changes."""
+    """Consume server responses and announce direction changes.
+
+    The current direction is repeated every REPEAT_INTERVAL seconds so a blind
+    user keeps being reminded which way to go, not only when it changes.
+    """
     last_command = None
+    last_announced_at = 0.0
     async for msg in ws:
         if not isinstance(msg, str):
             continue
@@ -156,10 +162,14 @@ async def receive_headings(ws, player, send_times, loop):
         if command is None:
             continue
 
-        if command != last_command:
+        now = time.monotonic()
+        changed = command != last_command
+        due_for_repeat = (now - last_announced_at) >= REPEAT_INTERVAL
+        if changed or due_for_repeat:
             print(command, flush=True)
             # Blocking playback off the event loop so streaming continues.
             await loop.run_in_executor(None, play_sound, player, command)
+            last_announced_at = time.monotonic()
         last_command = command
 
 
