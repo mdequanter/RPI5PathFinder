@@ -204,12 +204,12 @@ async def receive_headings(ws, player, send_times, proc_state, mqtt_client):
 
         publish_heading(mqtt_client, heading)
 
-        print(
-            f"heading={float(heading):.1f} command={command or 'straight'} "
-            f"frame={frame_id} "
-            f"latency={f'{latency_ms:.0f}ms' if latency_ms is not None else 'n/a'}",
-            flush=True,
-        )
+        #print(
+        #    f"heading={float(heading):.1f} command={command or 'straight'} "
+        #    f"frame={frame_id} "
+        #    f"latency={f'{latency_ms:.0f}ms' if latency_ms is not None else 'n/a'}",
+        #    flush=True,
+        #)
 
         # Only announce left/right; ignore straight (forward) and don't let it
         # reset last_command, so we re-announce only when the turn changes.
