@@ -44,6 +44,11 @@ except ImportError as exc:
         "Missing dependency: websockets. Install it with: pip install websockets"
     ) from exc
 
+try:
+    import paho.mqtt.client as mqtt
+except ImportError:
+    mqtt = None
+
 
 # --- Signaling / streaming configuration -----------------------------------
 # Must match the endpoint segmentVideoServer.py connects to so both ends share
@@ -58,6 +63,13 @@ SEND_INTERVAL = 0.1         # seconds between frames sent to the server
 REPEAT_INTERVAL = 2.0       # re-announce the same direction every N seconds
 TARGET_HEADING = 90.0
 HEADING_DEADBAND = 2.0
+
+# --- MQTT -------------------------------------------------------------------
+MQTT_BROKER = "localhost"
+MQTT_PORT = 1883
+MQTT_TOPIC = "heading"
+HEADING_MIN = 50.0           # clamp published heading to this range
+HEADING_MAX = 130.0
 
 BEARER_TOKEN = os.environ.get("PATHFINDER_BEARER_TOKEN")
 
@@ -82,6 +94,34 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 log = logging.getLogger("walkguide-signaling")
+
+
+def create_mqtt_client():
+    """Connect to the local MQTT broker. Returns a client or None on failure."""
+    if mqtt is None:
+        log.warning("paho-mqtt not installed; MQTT publish disabled. "
+                    "Install it with: pip install paho-mqtt")
+        return None
+    try:
+        client = mqtt.Client()
+        client.connect(MQTT_BROKER, MQTT_PORT, keepalive=60)
+        client.loop_start()
+        log.info("Connected to MQTT broker (%s:%s)", MQTT_BROKER, MQTT_PORT)
+        return client
+    except Exception as exc:
+        log.warning("MQTT connection failed (%s); publish disabled.", exc)
+        return None
+
+
+def publish_heading(client, heading):
+    """Publish the heading (clamped to [HEADING_MIN, HEADING_MAX]) as a number."""
+    if client is None:
+        return
+    clamped = max(HEADING_MIN, min(HEADING_MAX, float(heading)))
+    try:
+        client.publish(MQTT_TOPIC, round(clamped, 2))
+    except Exception as exc:
+        log.warning("MQTT publish failed: %s", exc)
 
 
 def find_audio_player():
@@ -123,7 +163,7 @@ def command_for_heading(heading):
     return "right" if heading < TARGET_HEADING else "left"
 
 
-async def receive_headings(ws, player, send_times, loop):
+async def receive_headings(ws, player, send_times, loop, mqtt_client):
     """Consume server responses and announce direction changes.
 
     The current direction is repeated every REPEAT_INTERVAL seconds so a blind
@@ -151,6 +191,9 @@ async def receive_headings(ws, player, send_times, loop):
         latency_ms = (time.monotonic() - sent_at) * 1000.0 if sent_at else None
 
         command = command_for_heading(float(heading))
+
+        publish_heading(mqtt_client, heading)
+
         print(
             f"heading={float(heading):.1f} command={command or 'straight'} "
             f"frame={frame_id} "
@@ -232,6 +275,8 @@ async def run():
     loop = asyncio.get_event_loop()
     await loop.run_in_executor(None, play_sound, player, "started")
 
+    mqtt_client = create_mqtt_client()
+
     log.info("Initialising CSI camera (Picamera2) at %sx%s", *FRAME_SIZE)
     picam2 = Picamera2()
     config = picam2.create_preview_configuration(
@@ -262,10 +307,13 @@ async def run():
             log.info("Connected. Streaming frames (Ctrl+C to stop).")
             await asyncio.gather(
                 stream_frames(ws, picam2, send_times, loop),
-                receive_headings(ws, player, send_times, loop),
+                receive_headings(ws, player, send_times, loop, mqtt_client),
             )
     finally:
         picam2.stop()
+        if mqtt_client is not None:
+            mqtt_client.loop_stop()
+            mqtt_client.disconnect()
         log.info("Camera stopped.")
 
 
