@@ -62,7 +62,7 @@ JPEG_QUALITY = 50
 SEND_INTERVAL = 0.1         # seconds between frames sent to the server
 REPEAT_INTERVAL = 2.0       # re-announce the same direction every N seconds
 TARGET_HEADING = 90.0
-HEADING_DEADBAND = 20.0
+HEADING_DEADBAND = 30.0
 
 # --- MQTT -------------------------------------------------------------------
 MQTT_BROKER = "localhost"
